@@ -15,7 +15,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS files (
                 id INTEGER PRIMARY KEY,
                 path TEXT NOT NULL,
-                hash TEXT
+                hash INTEGER
             )
         """)
         conn.commit()
