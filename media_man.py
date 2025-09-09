@@ -55,7 +55,7 @@ def find_similar_images(image_path: str, max_distance: int = 5):
         )
         same_files = cursor.fetchall()
         if same_files: # we got lucky!
-            results = [(file_id, path, 0) for file_id, path, stored_hash in same_files]
+            results = [(file_id, path, stored_hash, 0) for file_id, path, stored_hash in same_files]
         
         else:
             # Subquery ensures dist alias is available for filtering
