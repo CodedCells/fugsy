@@ -32,9 +32,8 @@ def retrieve_file(file_id: int) -> str:
 def hamming_distance(h1: int, h2: int) -> int:
     if h1 == None or h2 == None:
         return 696969420 # can't compare nones
-    """Compute Hamming distance between two signed 64-bit hashes."""
-    #return bin(to_unsigned(h1) ^ to_unsigned(h2)).count("1")
-    return imagehash.hex_to_hash(f"{to_unsigned(h1):016x}") - imagehash.hex_to_hash(f"{to_unsigned(h2):016x}")
+    """Compute Hamming distance, first turn the back into unsigned and hash them."""
+    return int(imagehash.hex_to_hash(f"{to_unsigned(h1):016x}") - imagehash.hex_to_hash(f"{to_unsigned(h2):016x}"))
 
 def find_similar_images(image_path: str, max_distance: int = 5):
     target_hash = calculate_average_hash(image_path)
@@ -70,9 +69,9 @@ def find_similar_images(image_path: str, max_distance: int = 5):
             similar_files = cursor.fetchall()
             print(len(similar_files))
             for file_id, path, stored_hash, dist in similar_files:
-                results.append((file_id, path, dist))
+                results.append((file_id, path, stored_hash, dist))
     
-    return sorted(results, key=lambda x: x[2])
+    return sorted(results, key=lambda x: x[3])
 
 # --- Flask Routes ---
 @app.route("/")
@@ -136,7 +135,7 @@ def search_similar():
 
     os.remove(temp_path)
     return jsonify([
-        {"id": mid, "path": path, "distance": int(dist)} for mid, path, dist in matches
+        {"id": mid, "path": path, "hash": hash, "distance": dist} for mid, path, hash, dist in matches
     ])
 
 @app.route("/query", methods=["GET"])
