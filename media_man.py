@@ -48,18 +48,29 @@ def find_similar_images(image_path: str, max_distance: int = 5):
         conn.create_function("HAMMING", 2, hamming_distance)
         cursor = conn.cursor()
         
-        # Subquery ensures dist alias is available for filtering
         cursor.execute(
-            "SELECT id, path, hash, HAMMING(?, hash) as dist "
+            "SELECT id, path, hash "
             "FROM files "
-            "WHERE dist <= ?",
-            (target_hash, max_distance)
+            "WHERE hash = ?",
+            (target_hash, )
         )
+        same_files = cursor.fetchall()
+        if same_files: # we got lucky!
+            results = [(file_id, path, 0) for file_id, path, stored_hash in same_files]
         
-        similar_files = cursor.fetchall()
-        print(len(similar_files))
-        for file_id, path, stored_hash, dist in similar_files:
-            results.append((file_id, path, dist))
+        else:
+            # Subquery ensures dist alias is available for filtering
+            cursor.execute(
+                "SELECT id, path, hash, HAMMING(?, hash) as dist "
+                "FROM files "
+                "WHERE dist <= ?",
+                (target_hash, max_distance)
+            )
+            
+            similar_files = cursor.fetchall()
+            print(len(similar_files))
+            for file_id, path, stored_hash, dist in similar_files:
+                results.append((file_id, path, dist))
     
     return sorted(results, key=lambda x: x[2])
 
