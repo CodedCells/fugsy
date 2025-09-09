@@ -107,6 +107,17 @@ def calculate_average_hash(image_path: str) -> str:
         return None
 
 
+def to_signed(val: int) -> int:
+    if val >= 2**63:
+        val -= 2**64
+    return val
+
+def to_unsigned(val: int) -> int:
+    if val < 0:
+        val += 2**64
+    return val
+
+
 def compress(data, encoding="utf-8"):
     if encoding:
         data = data.encode("utf-8")

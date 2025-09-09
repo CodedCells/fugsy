@@ -16,6 +16,7 @@ from typing import List, Iterator
 DB_FAVES = '/agic/fugsy/db/favourites,db'
 DB_PAGES = '/agic/fugsy/db/pages.db'
 DB_MEDIA = '/agic/media_idx/file_index.db'
+MEDIA_DIR = Path('/agic/media_idx')
 
 def create_database():
     with sqlite3.connect(DB_FAVES) as conn:
@@ -311,7 +312,7 @@ def fetch_post_media(sid, html_content, recursion=0):
             exit()
     
     ext = Path(full_url).suffix  # keep the extension (.jpg, .png, .txt, etc.)
-    filepath  = get_storage_path(sid, Path('/agic/media_idx')).with_suffix(ext)
+    filepath  = get_storage_path(sid, MEDIA_DIR).with_suffix(ext)
     filepath.parent.mkdir(parents=True, exist_ok=True)  # Create dirs if needed
     
     with open(filepath, 'wb') as fh:
@@ -321,13 +322,15 @@ def fetch_post_media(sid, html_content, recursion=0):
     file_hash = None
     try:
         file_hash = calculate_average_hash(filepath)
+        file_hash = to_signed(int(file_hash, 16))
     except Exception:
         return
     
+    path_str = str(filepath).lstrip(str(MEDIA_DIR))
     with sqlite3.connect(DB_MEDIA) as conn:
         conn.execute(
             "INSERT OR REPLACE INTO files (id, path, hash) VALUES (?, ?, ?)",
-            (sid, str(filepath), file_hash)
+            (sid, path_str, file_hash)
         )
         conn.commit()
 

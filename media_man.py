@@ -1,14 +1,10 @@
-import os
-import sqlite3
-from pathlib import Path
 from shutil import copyfile
-from PIL import Image
-import imagehash
 from flask import Flask, request, jsonify, send_file, render_template_string
+from fugsy_lib import *
 
 # --- Config ---
 BASE_DIR = Path("/agic/media_idx")
-DB_PATH = "file_index.db"
+DB_PATH = "/agic/media_idx/file_index.db"
 
 app = Flask(__name__)
 
@@ -24,35 +20,6 @@ def init_db():
         """)
         conn.commit()
 
-# --- File Storage ---
-def get_storage_path(file_id: int) -> Path:
-    s = str(file_id).zfill(9)
-    subdirs = [s[:2], s[2:4], s[4:6]]
-    return BASE_DIR.joinpath(*subdirs, s)
-
-def calculate_average_hash(image_path: str) -> str:
-    try:
-        img = Image.open(image_path)
-        return str(imagehash.average_hash(img))
-    except Exception as e:
-        print(f"Could not hash image {image_path}: {e}")
-        return None
-
-def store_file(src_path: str, file_id: int):
-    dest_path = get_storage_path(file_id)
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-    copyfile(src_path, dest_path)
-
-    file_hash = calculate_average_hash(src_path)
-
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO files (id, path, hash) VALUES (?, ?, ?)",
-            (file_id, str(dest_path), file_hash)
-        )
-        conn.commit()
-    return dest_path, file_hash
-
 def retrieve_file(file_id: int) -> str:
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.execute("SELECT path FROM files WHERE id = ?", (file_id,))
@@ -62,18 +29,38 @@ def retrieve_file(file_id: int) -> str:
         else:
             raise FileNotFoundError(f"File ID {file_id} not found in index.")
 
+def hamming_distance(h1: int, h2: int) -> int:
+    if h1 == None or h2 == None:
+        return 696969420 # can't compare nones
+    """Compute Hamming distance between two signed 64-bit hashes."""
+    #return bin(to_unsigned(h1) ^ to_unsigned(h2)).count("1")
+    return imagehash.hex_to_hash(f"{to_unsigned(h1):016x}") - imagehash.hex_to_hash(f"{to_unsigned(h2):016x}")
+
 def find_similar_images(image_path: str, max_distance: int = 5):
     target_hash = calculate_average_hash(image_path)
     if not target_hash:
         raise ValueError("Provided file is not a valid image for hashing.")
-
+    
+    target_hash = to_signed(int(target_hash, 16))
+    
     results = []
     with sqlite3.connect(DB_PATH) as conn:
-        cur = conn.execute("SELECT id, path, hash FROM files WHERE hash IS NOT NULL")
-        for file_id, path, stored_hash in cur.fetchall():
-            dist = imagehash.hex_to_hash(target_hash) - imagehash.hex_to_hash(stored_hash)
-            if dist <= max_distance:
-                results.append((file_id, path, dist))
+        conn.create_function("HAMMING", 2, hamming_distance)
+        cursor = conn.cursor()
+        
+        # Subquery ensures dist alias is available for filtering
+        cursor.execute(
+            "SELECT id, path, hash, HAMMING(?, hash) as dist "
+            "FROM files "
+            "WHERE dist <= ?",
+            (target_hash, max_distance)
+        )
+        
+        similar_files = cursor.fetchall()
+        print(len(similar_files))
+        for file_id, path, stored_hash, dist in similar_files:
+            results.append((file_id, path, dist))
+    
     return sorted(results, key=lambda x: x[2])
 
 # --- Flask Routes ---
@@ -96,13 +83,6 @@ def index():
 <body>
     <h1>📂 File Store & 🔍 Image Search</h1>
 
-    <h2>Upload File</h2>
-    <form action="/upload" method="post" enctype="multipart/form-data" target="_blank">
-        <input type="file" name="file" required>
-        <input type="number" name="id" placeholder="File ID" required>
-        <button type="submit">Upload</button>
-    </form>
-
     <h2>Search Similar Images</h2>
     <form action="/search" method="post" enctype="multipart/form-data" target="_blank">
         <input type="file" name="file" required>
@@ -118,25 +98,6 @@ def index():
 </body>
 </html>
     """)
-
-@app.route("/upload", methods=["POST"])
-def upload_file():
-    if "file" not in request.files or "id" not in request.form:
-        return jsonify({"error": "file and id are required"}), 400
-
-    file = request.files["file"]
-    file_id = int(request.form["id"])
-    temp_path = f"/tmp/{file.filename}"
-    file.save(temp_path)
-
-    dest_path, file_hash = store_file(temp_path, file_id)
-    os.remove(temp_path)
-
-    return jsonify({
-        "id": file_id,
-        "path": str(dest_path),
-        "hash": file_hash
-    })
 
 @app.route("/get/<int:file_id>", methods=["GET"])
 def get_file(file_id):
